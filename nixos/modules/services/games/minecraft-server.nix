@@ -8,16 +8,25 @@ let
     eula=true
   '';
 
-  whitelistFile = pkgs.writeText "whitelist.json"
-    (builtins.toJSON
-      (lib.mapAttrsToList (n: v: { name = n; uuid = v; }) cfg.whitelist));
+  minecraftUUID = lib.types.strMatching
+    "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" // {
+      description = "Minecraft UUID";
+    };
+
+  whitelistFile = pkgs.writeText "whitelist.json" (builtins.toJSON
+    (lib.mapAttrsToList (n: v: {
+      name = n;
+      uuid = v;
+    }) cfg.whitelist));
+
+  opsFile = pkgs.writeText "ops.json" (builtins.toJSON cfg.ops);
 
   cfgToString = v: if builtins.isBool v then lib.boolToString v else toString v;
 
   serverPropertiesFile = pkgs.writeText "server.properties" (''
     # server.properties managed by NixOS configuration
-  '' + lib.concatStringsSep "\n" (lib.mapAttrsToList
-    (n: v: "${n}=${cfgToString v}") cfg.serverProperties));
+  '' + lib.concatStringsSep "\n"
+    (lib.mapAttrsToList (n: v: "${n}=${cfgToString v}") cfg.serverProperties));
 
   stopScript = pkgs.writeShellScript "minecraft-server-stop" ''
     echo stop > ${config.systemd.sockets.minecraft-server.socketConfig.ListenFIFO}
@@ -36,13 +45,15 @@ let
 
   serverPort = cfg.serverProperties.server-port or defaultServerPort;
 
-  rconPort = if cfg.serverProperties.enable-rcon or false
-    then cfg.serverProperties."rcon.port" or 25575
-    else null;
+  rconPort = if cfg.serverProperties.enable-rcon or false then
+    cfg.serverProperties."rcon.port" or 25575
+  else
+    null;
 
-  queryPort = if cfg.serverProperties.enable-query or false
-    then cfg.serverProperties."query.port" or 25565
-    else null;
+  queryPort = if cfg.serverProperties.enable-query or false then
+    cfg.serverProperties."query.port" or 25565
+  else
+    null;
 
 in {
   options = {
@@ -98,13 +109,8 @@ in {
       };
 
       whitelist = lib.mkOption {
-        type = let
-          minecraftUUID = lib.types.strMatching
-            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" // {
-              description = "Minecraft UUID";
-            };
-          in lib.types.attrsOf minecraftUUID;
-        default = {};
+        type = lib.types.attrsOf minecraftUUID;
+        default = { };
         description = ''
           Whitelisted players, only has an effect when
           {option}`services.minecraft-server.declarative` is
@@ -112,7 +118,7 @@ in {
           via {option}`services.minecraft-server.serverProperties` by
           setting `white-list` to `true`.
           This is a mapping from Minecraft usernames to UUIDs.
-          You can use <https://mcuuid.net/> to get a
+          You can use <https://mcuuid.net/> to get the
           Minecraft UUID for a username.
         '';
         example = lib.literalExpression ''
@@ -123,9 +129,64 @@ in {
         '';
       };
 
+      ops = lib.mkOption {
+        type = with lib.types;
+          listOf (types.submodule {
+            options = {
+              name = lib.mkOption {
+                type = str;
+                description = "The operator's username.";
+              };
+              uuid = lib.mkOption {
+                type = minecraftUUID;
+                description = ''
+                  The operator's UUID.
+                  You can use <https://mcuuid.net/> to get the
+                  Minecraft UUID for a username.
+                '';
+              };
+              level = lib.mkOption {
+                type = int;
+                description = ''
+                  The operator's permission level.
+                  Find out more about the permission level at
+                  <https://minecraft.wiki/w/Permission_level#Java_Edition>
+                '';
+              };
+              bypassesPlayerLimit = lib.mkOption {
+                type = bool;
+                default = false;
+                description = ''
+                  If true, this operator can join the server even if the player limit has been reached.
+                '';
+              };
+            };
+          });
+        default = { };
+        description = ''
+          Operators of the server, only has an effect when
+          {option}`services.minecraft-server.declarative` is
+          `true`.
+        '';
+        example = lib.literalExpression ''
+          [
+            {
+              name = "username1";
+              uuid = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx";
+              level = 4;
+            }
+            {
+              name = "username2";
+              uuid = "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy";
+              level = 3;
+            }
+          ]
+        '';
+      };
+
       serverProperties = lib.mkOption {
         type = with lib.types; attrsOf (oneOf [ bool int str ]);
-        default = {};
+        default = { };
         example = lib.literalExpression ''
           {
             server-port = 43000;
@@ -166,13 +227,13 @@ in {
   config = lib.mkIf cfg.enable {
 
     users.users.minecraft = {
-      description     = "Minecraft server service user";
-      home            = cfg.dataDir;
-      createHome      = true;
-      isSystemUser    = true;
-      group           = "minecraft";
+      description = "Minecraft server service user";
+      home = cfg.dataDir;
+      createHome = true;
+      isSystemUser = true;
+      group = "minecraft";
     };
-    users.groups.minecraft = {};
+    users.groups.minecraft = { };
 
     systemd.sockets.minecraft-server = {
       bindsTo = [ "minecraft-server.service" ];
@@ -187,10 +248,10 @@ in {
     };
 
     systemd.services.minecraft-server = {
-      description   = "Minecraft Server Service";
-      wantedBy      = [ "multi-user.target" ];
-      requires      = [ "minecraft-server.socket" ];
-      after         = [ "network.target" "minecraft-server.socket" ];
+      description = "Minecraft Server Service";
+      wantedBy = [ "multi-user.target" ];
+      requires = [ "minecraft-server.socket" ];
+      after = [ "network.target" "minecraft-server.socket" ];
 
       serviceConfig = {
         ExecStart = "${cfg.package}/bin/minecraft-server ${cfg.jvmOpts}";
@@ -234,12 +295,14 @@ in {
 
           # Was declarative before, no need to back up anything
           ln -sf ${whitelistFile} whitelist.json
+          ln -sf ${opsFile} ops.json
           cp -f ${serverPropertiesFile} server.properties
 
         else
 
           # Declarative for the first time, backup stateful files
           ln -sb --suffix=.stateful ${whitelistFile} whitelist.json
+          ln -sb --suffix=.stateful ${opsFile} ops.json
           cp -b --suffix=.stateful ${serverPropertiesFile} server.properties
 
           # server.properties must have write permissions, because every time
@@ -266,13 +329,12 @@ in {
       allowedTCPPorts = [ defaultServerPort ];
     });
 
-    assertions = [
-      { assertion = cfg.eula;
-        message = "You must agree to Mojangs EULA to run minecraft-server."
-          + " Read https://account.mojang.com/documents/minecraft_eula and"
-          + " set `services.minecraft-server.eula` to `true` if you agree.";
-      }
-    ];
+    assertions = [{
+      assertion = cfg.eula;
+      message = "You must agree to Mojangs EULA to run minecraft-server."
+        + " Read https://account.mojang.com/documents/minecraft_eula and"
+        + " set `services.minecraft-server.eula` to `true` if you agree.";
+    }];
 
   };
 }
