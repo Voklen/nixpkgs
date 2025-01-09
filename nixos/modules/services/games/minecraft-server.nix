@@ -40,7 +40,7 @@ let
 
   # To be able to open the firewall, we need to read out port values in the
   # server properties, but fall back to the defaults when those don't exist.
-  # These defaults are from https://minecraft.gamepedia.com/Server.properties#Java_Edition_3
+  # These defaults are from https://minecraft.wiki/w/Server.properties
   defaultServerPort = 25565;
 
   serverPort = cfg.serverProperties.server-port or defaultServerPort;
@@ -85,10 +85,9 @@ in {
         type = lib.types.bool;
         default = false;
         description = ''
-          Whether you agree to
-          [
-          Mojangs EULA](https://account.mojang.com/documents/minecraft_eula). This option must be set to
-          `true` to run Minecraft server.
+          Whether you agree to the
+          [Minecraft EULA](https://www.minecraft.net/eula). This option must be set to
+          `true` to run a Minecraft server.
         '';
       };
 
@@ -203,7 +202,7 @@ in {
           Minecraft server properties for the server.properties file. Only has
           an effect when {option}`services.minecraft-server.declarative`
           is set to `true`. See
-          <https://minecraft.gamepedia.com/Server.properties#Java_Edition_3>
+          <https://minecraft.wiki/w/Server.properties>
           for documentation on these values.
         '';
       };
@@ -215,10 +214,10 @@ in {
       jvmOpts = lib.mkOption {
         type = lib.types.separatedString " ";
         default = "-Xmx2048M -Xms2048M";
-        # Example options from https://minecraft.gamepedia.com/Tutorials/Server_startup_script
-        example = "-Xms4092M -Xmx4092M -XX:+UseG1GC -XX:+CMSIncrementalPacing "
-          + "-XX:+CMSClassUnloadingEnabled -XX:ParallelGCThreads=2 "
-          + "-XX:MinHeapFreeRatio=5 -XX:MaxHeapFreeRatio=10";
+        # Example options from https://minecraft.wiki/w/Tutorial:Server_startup_script
+        example = ''
+          -Xms4092M -Xmx4092M -XX:+UseG1GC -XX:ParallelGCThreads=2 -XX:MinHeapFreeRatio=5 -XX:MaxHeapFreeRatio=10
+        '';
         description = "JVM options for the Minecraft server.";
       };
     };
@@ -331,9 +330,11 @@ in {
 
     assertions = [{
       assertion = cfg.eula;
-      message = "You must agree to Mojangs EULA to run minecraft-server."
-        + " Read https://account.mojang.com/documents/minecraft_eula and"
-        + " set `services.minecraft-server.eula` to `true` if you agree.";
+      message = ''
+        You must agree to the Minecraft EULA to run minecraft-server.
+        Read https://www.minecraft.net/eula and
+        set `services.minecraft-server.eula` to `true` if you agree.
+      '';
     }];
 
   };
